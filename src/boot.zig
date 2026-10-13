@@ -2,6 +2,10 @@ const std = @import("std");
 const k = @import("kernel");
 const app = @import("app");
 const limine = k.limine;
+const gdt = @import("gdt.zig");
+const idt = @import("idt.zig");
+const pic = @import("pic.zig");
+const syscall = @import("syscall.zig");
 
 pub const std_options_debug_threaded_io = null;
 pub const std_options_debug_io: std.Io = k.io.debug_io;
@@ -52,7 +56,17 @@ export fn _start() callconv(.c) noreturn {
     k.heap.init();
     k.write("kernel.zig: memory ready\n");
 
+    gdt.load();
+    idt.init();
+    syscall.init();
+    pic.init();
+    k.timer.init();
+    k.tasks.init();
+    k.ata.init();
+    k.write("kernel.zig: IRQ, timer, disk, processes ready\n");
+
     app.boot(k.heap.allocator());
+    asm volatile ("sti");
     while (true) {
         if (k.readByte()) |byte| {
             app.onInput(byte);
