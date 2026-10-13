@@ -134,7 +134,7 @@ pub fn init() void {
 }
 
 pub fn read(lba: u28, buf: *[SECTOR]u8) bool {
-    if (!g_present) return false;
+    if (!g_present or lba >= g_sectors) return false;
     if (!waitNotBusy()) return false;
     selectSector(lba);
     port.outb(CMD, CMD_READ);
@@ -162,6 +162,5 @@ pub fn write(lba: u28, buf: *const [SECTOR]u8) bool {
         port.outw(DATA, word);
     }
     port.outb(CMD, CMD_FLUSH);
-    _ = waitNotBusy();
-    return true;
+    return waitNotBusy();
 }
