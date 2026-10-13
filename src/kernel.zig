@@ -9,6 +9,11 @@ pub const ata = @import("ata.zig");
 pub const framebuffer = @import("framebuffer.zig");
 pub const timer = @import("timer.zig");
 pub const tasks = @import("tasks.zig");
+pub const gdt = @import("gdt.zig");
+pub const idt = @import("idt.zig");
+pub const pic = @import("pic.zig");
+pub const syscall = @import("syscall.zig");
+pub const vmm = @import("vmm.zig");
 
 pub fn write(bytes: []const u8) void {
     serial.write(bytes);
