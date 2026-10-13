@@ -1,3 +1,4 @@
 [submodule "limine"]
 	path = limine
+	ignore = untracked
 	url = https://github.com/limine-bootloader/limine.git
