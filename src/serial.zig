@@ -1,6 +1,5 @@
 // this is a minimal 16550 uart driver for com1, this is mainly going
 // to be used for debugging since its really simple to setup
-// fun fact: i was drunk when i wrote this
 //
 // see: https://wiki.osdev.org/Serial_Ports
 
@@ -37,7 +36,7 @@ inline fn inb(port: u16) u8 {
     );
 }
 
-// 38400 buard
+// 38400 baud
 // 8 data bits
 // no parity
 // one stop bit
@@ -59,16 +58,6 @@ pub fn init() void {
 fn putc(byte: u8) void {
     while (inb(COM1 + REG_LSR) & LSR_THR_EMPTY == 0) {}
     outb(COM1 + REG_DATA, byte);
-}
-
-// next un rendered byte, or null if caught up. if the console fell far enough
-// behind to lap the ring, drop the oldest bytes
-pub fn mirrorNext() ?u8 {
-    if (m_head == m_tail) return null;
-    if (m_tail -% m_head > mirror.len) m_head = m_tail -% mirror.len;
-    const byte = mirror[m_head & (mirror.len - 1)];
-    m_head +%= 1;
-    return byte;
 }
 
 // a raw serial console needs \r\n, but revo (and most sane code) emits bare \n
