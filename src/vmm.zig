@@ -111,3 +111,31 @@ pub fn translate(pml4_phys: u64, virt: u64) ?u64 {
     if (entry & PRESENT == 0) return null;
     return (entry & ADDR_MASK) | (virt & 0xFFF); // frame base | page offset
 }
+
+// Free only a process's private lower-half mappings. The upper half shares
+// kernel page tables, so it must never be traversed or released here.
+// Caller must first switch CR3 away from this address space.
+fn releaseTable(phys: u64, depth: u2) void {
+    const entries = table(phys);
+    for (0..512) |i| {
+        const entry = entries[i];
+        if (entry & PRESENT == 0) continue;
+        const child = entry & ADDR_MASK;
+        if (depth == 0) {
+            pmm.free(child);
+        } else {
+            releaseTable(child, depth - 1);
+        }
+    }
+    pmm.free(phys);
+}
+
+pub fn destroyUserAddressSpace(root: u64) void {
+    if (root == 0 or root == activePml4()) return;
+    const pml4 = table(root);
+    for (0..256) |i| {
+        const entry = pml4[i];
+        if (entry & PRESENT != 0) releaseTable(entry & ADDR_MASK, 2);
+    }
+    pmm.free(root);
+}
