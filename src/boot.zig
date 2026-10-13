@@ -2,10 +2,10 @@ const std = @import("std");
 const k = @import("kernel");
 const app = @import("app");
 const limine = k.limine;
-const gdt = @import("gdt.zig");
-const idt = @import("idt.zig");
-const pic = @import("pic.zig");
-const syscall = @import("syscall.zig");
+const gdt = k.gdt;
+const idt = k.idt;
+const pic = k.pic;
+const syscall = k.syscall;
 
 pub const std_options_debug_threaded_io = null;
 pub const std_options_debug_io: std.Io = k.io.debug_io;
