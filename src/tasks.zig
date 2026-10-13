@@ -48,27 +48,34 @@ pub fn state(pid: u64) u64 {
     return @intFromEnum(tasks[@intCast(pid)].state);
 }
 
-// Keep completed slots for inspection; a later revision will add page-table
-// reclamation, exit codes, and a fully validated ELF loader.
+// Exited task slots can be reused once their private pages are reclaimed.
 pub fn spawn(bytes: []const u8) ?u64 {
     if (bytes.len == 0 or bytes.len > CODE_SIZE) return null;
     var slot: usize = 1;
-    while (slot < MAX and tasks[slot].state != .unused) : (slot += 1) {}
+    while (slot < MAX and !(tasks[slot].state == .unused or (tasks[slot].state == .exited and tasks[slot].cr3 == 0))) : (slot += 1) {}
     if (slot == MAX) return null;
 
     const cr3 = vmm.createAddressSpace() orelse return null;
-    const phys = pmm.alloc() orelse return null;
+    const phys = pmm.alloc() orelse { vmm.destroyUserAddressSpace(cr3); return null; };
     const dst: [*]u8 = @ptrFromInt(pmm.physToVirt(phys));
     @memset(dst[0..pmm.PAGE_SIZE], 0);
     @memcpy(dst[0..bytes.len], bytes);
-    if (!vmm.map(cr3, CODE_BASE, phys, vmm.WRITE | vmm.USER)) return null;
+    if (!vmm.map(cr3, CODE_BASE, phys, vmm.USER)) {
+        pmm.free(phys);
+        vmm.destroyUserAddressSpace(cr3);
+        return null;
+    }
 
     for (0..STACK_PAGES) |index| {
-        const frame = pmm.alloc() orelse return null;
+        const frame = pmm.alloc() orelse { vmm.destroyUserAddressSpace(cr3); return null; };
         const stack_page: [*]u8 = @ptrFromInt(pmm.physToVirt(frame));
         @memset(stack_page[0..pmm.PAGE_SIZE], 0);
         const virt = STACK_TOP - (@as(u64, @intCast(index)) + 1) * pmm.PAGE_SIZE;
-        if (!vmm.map(cr3, virt, frame, vmm.WRITE | vmm.USER)) return null;
+        if (!vmm.map(cr3, virt, frame, vmm.WRITE | vmm.USER)) {
+            pmm.free(frame);
+            vmm.destroyUserAddressSpace(cr3);
+            return null;
+        }
     }
 
     var frame = std.mem.zeroes(Frame);
@@ -100,6 +107,7 @@ pub fn userReadable(ptr: u64, len: u64) bool {
 }
 
 pub fn tick(frame: *Frame) void {
+    const previous = active;
     if (tasks[active].state == .ready) tasks[active].frame = frame.*;
     var next: usize = 0;
     for (1..MAX + 1) |delta| {
@@ -114,4 +122,8 @@ pub fn tick(frame: *Frame) void {
     frame.* = tasks[next].frame;
     vmm.loadPml4(tasks[next].cr3);
     if (tasks[next].kernel_stack != 0) gdt.setKernelStack(tasks[next].kernel_stack);
+    if (previous != 0 and tasks[previous].state == .exited) {
+        vmm.destroyUserAddressSpace(tasks[previous].cr3);
+        tasks[previous].cr3 = 0;
+    }
 }
