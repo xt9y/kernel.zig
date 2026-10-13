@@ -26,7 +26,7 @@ export var requests_end: limine.RequestsEndMarker linksection(".limine_requests_
 export var hhdm_request: limine.HhdmRequest linksection(".limine_requests") = .{};
 export var memmap_request: limine.MemoryMapRequest linksection(".limine_requests") = .{};
 export var stack_size_request: limine.StackSizeRequest linksection(".limine_requests") = .{
-    .stack_size = 16 * 1024 * 1024,
+    .stack_size = k.config.boot_stack_mib * 1024 * 1024,
 };
 
 fn enableSse() void {
@@ -68,6 +68,7 @@ export fn _start() callconv(.c) noreturn {
     app.boot(k.heap.allocator());
     asm volatile ("sti");
     while (true) {
+        k.tasks.reapExited();
         if (k.readByte()) |byte| {
             app.onInput(byte);
         } else {

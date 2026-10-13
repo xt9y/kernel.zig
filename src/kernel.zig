@@ -1,4 +1,5 @@
 // Public, language-independent kernel API.
+pub const config = @import("config.zig");
 pub const limine = @import("limine.zig");
 pub const pmm = @import("pmm.zig");
 pub const heap = @import("heap.zig");

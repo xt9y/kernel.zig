@@ -3,8 +3,9 @@
 const std = @import("std");
 const pmm = @import("pmm.zig");
 const serial = @import("serial.zig");
+const config = @import("config.zig");
 
-const HEAP_PAGES: usize = 16384; // 64 mib
+const HEAP_PAGES: usize = config.heap_mib * 1024 * 1024 / pmm.PAGE_SIZE;
 const HEADER: usize = 16; // keeps payloads 16 aligned
 const ALIGN: usize = 16;
 const MIN_BLOCK: usize = 32; // header + alignment usable scrap, note: dont split below this

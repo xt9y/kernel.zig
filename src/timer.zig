@@ -1,6 +1,7 @@
-// 8253/8254 PIT channel 0, using IRQ0 at 100 Hz.
+// 8253/8254 PIT channel 0, using IRQ0 at the consumer-selected rate.
 const port = @import("port.zig");
-pub const HZ: u64 = 100;
+const config = @import("config.zig");
+pub const HZ: u64 = config.pit_hz;
 var counter: u64 = 0;
 
 pub fn init() void {

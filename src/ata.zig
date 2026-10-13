@@ -1,4 +1,4 @@
-// ata pio driver, primary bus master drive, 28 bit lba
+// ATA PIO driver: configurable legacy channel and device, 28-bit LBA.
 //
 // this is the dumbest most simple most retartded possible block device driver
 // it busy polls the status port and shovels one sector at a time through the 16
@@ -10,19 +10,21 @@
 
 const port = @import("port.zig");
 const serial = @import("serial.zig");
+const config = @import("config.zig");
 
 pub const SECTOR = 512;
 
-// primary bus io ports
-const DATA = 0x1F0;
-const FEATURES = 0x1F1; // error on read
-const SECCOUNT = 0x1F2;
-const LBA_LO = 0x1F3;
-const LBA_MID = 0x1F4;
-const LBA_HI = 0x1F5;
-const DRIVE = 0x1F6;
-const CMD = 0x1F7; // status on read
-const CTRL = 0x3F6; // alt status / device control
+// Legacy ATA PIO ports. Channel/device are selected at build time.
+const BASE: u16 = if (config.ata_secondary) 0x170 else 0x1F0;
+const DATA: u16 = BASE;
+const FEATURES: u16 = BASE + 1;
+const SECCOUNT: u16 = BASE + 2;
+const LBA_LO: u16 = BASE + 3;
+const LBA_MID: u16 = BASE + 4;
+const LBA_HI: u16 = BASE + 5;
+const DRIVE: u16 = BASE + 6;
+const CMD: u16 = BASE + 7;
+const CTRL: u16 = if (config.ata_secondary) 0x376 else 0x3F6;
 
 // status bits
 const ST_ERR = 0x01;
@@ -35,10 +37,10 @@ const CMD_WRITE = 0x30;
 const CMD_FLUSH = 0xE7;
 const CMD_IDENTIFY = 0xEC;
 
-const DRIVE_MASTER = 0xA0; // chs mode (for identify)
-const DRIVE_LBA = 0xE0; // lba mode (top nibble holds lba 24..27)
+const DRIVE_MASTER: u8 = if (config.ata_slave) 0xB0 else 0xA0;
+const DRIVE_LBA: u8 = if (config.ata_slave) 0xF0 else 0xE0;
 const FLOAT_BUS = 0xFF; // status read on a bus with no drive
-const SPIN_LIMIT = 1_000_000; // busy poll cap before we call the bus dead
+const SPIN_LIMIT = config.ata_spin_limit; // busy poll cap before we call the bus dead
 const IDENTIFY_WORDS = 256; // identify returns one sector of 16 bit words
 const ID_SECTORS_LO = 60; // identify words 60/61 hold the 28 bit sector count
 const ID_SECTORS_HI = 61;
@@ -101,7 +103,7 @@ fn selectSector(lba: u28) void {
 pub fn init() void {
     // a nonexistent bus floats high, bail before we wait a million spins on it
     if (port.inb(CMD) == FLOAT_BUS) {
-        serial.write("ata: no drive on primary bus\r\n");
+        serial.write("ata: no drive on selected bus\r\n");
         return;
     }
 
@@ -115,7 +117,7 @@ pub fn init() void {
     delay400();
 
     if (port.inb(CMD) == 0) {
-        serial.write("ata: primary master absent\r\n");
+        serial.write("ata: selected device absent\r\n");
         return;
     }
     if (!waitDrq()) {
@@ -128,7 +130,10 @@ pub fn init() void {
 
     g_sectors = (@as(u64, id[ID_SECTORS_HI]) << 16) | id[ID_SECTORS_LO];
     g_present = true;
-    serial.write("ata: primary master, sectors=");
+    serial.write("ata: ");
+    serial.write(if (config.ata_secondary) "secondary " else "primary ");
+    serial.write(if (config.ata_slave) "slave" else "master");
+    serial.write(", sectors=");
     serial.writeDec(g_sectors);
     serial.write("\r\n");
 }
@@ -151,7 +156,7 @@ pub fn read(lba: u28, buf: *[SECTOR]u8) bool {
 // write one 512 byte sector from buf to lba, then flush the drive cache so it
 // actually hits the image and survives a reboot, yk, like an actual file system
 pub fn write(lba: u28, buf: *const [SECTOR]u8) bool {
-    if (!g_present) return false;
+    if (!g_present or lba >= g_sectors) return false;
     if (!waitNotBusy()) return false;
     selectSector(lba);
     port.outb(CMD, CMD_WRITE);
