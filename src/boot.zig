@@ -61,6 +61,7 @@ export fn _start() callconv(.c) noreturn {
     syscall.init();
     pic.init();
     k.timer.init();
+    k.ps2.init();
     k.tasks.init();
     k.ata.init();
     k.write("kernel.zig: IRQ, timer, disk, processes ready\n");
@@ -72,7 +73,8 @@ export fn _start() callconv(.c) noreturn {
         k.tasks.reapExited();
         // No lost wakeup between checking the queue and sleeping.
         asm volatile ("cli" ::: .{ .memory = true });
-        const byte = k.readByte();
+        var byte = k.readByte();
+        if (byte == null) byte = k.ps2.readChar();
         if (byte) |value| {
             asm volatile ("sti" ::: .{ .memory = true });
             app.onInput(value);
