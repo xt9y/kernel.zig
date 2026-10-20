@@ -21,7 +21,7 @@ pub fn eoi(irq: u4) void {
     port.outb(MASTER_CMD, EOI);
 }
 
-// Reprogram the dual 8259 PIC and enable only the PIT (IRQ0).
+// Reprogram the dual 8259 PIC and enable PIT IRQ0 and COM1 IRQ4.
 pub fn init() void {
     port.outb(0x20, 0x11);
     port.outb(0xA0, 0x11);
@@ -31,6 +31,6 @@ pub fn init() void {
     port.outb(0xA1, 0x02);
     port.outb(0x21, 0x01);
     port.outb(0xA1, 0x01);
-    port.outb(0x21, 0xFE); // IRQ0 only
+    port.outb(0x21, 0xEE); // IRQ0 and IRQ4
     port.outb(0xA1, 0xFF);
 }

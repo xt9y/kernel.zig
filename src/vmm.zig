@@ -72,13 +72,23 @@ fn nextTable(parent_phys: u64, i: usize, create: bool) ?u64 {
 
 // map one 4 kib page: virt -> phys with the given leaf flags (present is added
 // returns false only if we ran out of frames for intermediate tables
-pub fn map(pml4_phys: u64, virt: u64, phys: u64, flags: u64) bool {
+fn mapPage(pml4_phys: u64, virt: u64, phys: u64, flags: u64, comptime invalidate: bool) bool {
     const pdpt = nextTable(pml4_phys, index(virt, 3), true) orelse return false;
     const pd = nextTable(pdpt, index(virt, 2), true) orelse return false;
     const pt = nextTable(pd, index(virt, 1), true) orelse return false;
     table(pt)[index(virt, 0)] = (phys & ADDR_MASK) | flags | PRESENT;
-    invlpg(virt);
+    if (invalidate) invlpg(virt);
     return true;
+}
+
+// Preserve the original mapping API for an active address space.
+pub fn map(pml4_phys: u64, virt: u64, phys: u64, flags: u64) bool {
+    return mapPage(pml4_phys, virt, phys, flags, true);
+}
+
+// Only for freshly created, inactive address spaces (before first CR3 load).
+pub fn mapInactive(pml4_phys: u64, virt: u64, phys: u64, flags: u64) bool {
+    return mapPage(pml4_phys, virt, phys, flags, false);
 }
 
 // create a fresh address space

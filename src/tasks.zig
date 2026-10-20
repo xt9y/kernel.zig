@@ -27,20 +27,21 @@ const Task = struct {
 
 var tasks: [MAX]Task = @splat(.{});
 var active: usize = 0;
+var ready_users: usize = 0;
+var has_exited: bool = false;
 
 pub fn init() void {
     tasks[0] = .{ .state = .ready, .cr3 = vmm.activePml4() };
     active = 0;
+    ready_users = 0;
+    has_exited = false;
 }
 pub fn current() u64 {
     return active;
 }
 pub fn count() u64 {
-    var result: u64 = 0;
-    for (tasks[1..]) |task| {
-        if (task.state == .ready) result += 1;
-    }
-    return result;
+    const ready: *volatile usize = &ready_users;
+    return ready.*;
 }
 pub fn state(pid: u64) u64 {
     if (pid >= MAX) return 0;
@@ -50,6 +51,10 @@ pub fn state(pid: u64) u64 {
 // This runs in the kernel event loop, not inside the timer interrupt.
 // Never free a user kernel stack while the interrupt handler is using it.
 pub fn reapExited() void {
+    const pending: *volatile bool = &has_exited;
+    if (!pending.*) return;
+    // Clear before sweeping; an exit during the sweep sets it again.
+    pending.* = false;
     for (tasks[1..]) |*task| {
         if (task.state != .exited or task.cr3 == 0) continue;
         vmm.destroyUserAddressSpace(task.cr3);
@@ -76,7 +81,7 @@ pub fn spawn(bytes: []const u8) ?u64 {
         const begin = index * pmm.PAGE_SIZE;
         const length = @min(pmm.PAGE_SIZE, bytes.len - begin);
         @memcpy(page[0..length], bytes[begin..][0..length]);
-        if (!vmm.map(cr3, CODE_BASE + index * pmm.PAGE_SIZE, phys, vmm.USER)) {
+        if (!vmm.mapInactive(cr3, CODE_BASE + index * pmm.PAGE_SIZE, phys, vmm.USER)) {
             pmm.free(phys);
             vmm.destroyUserAddressSpace(cr3);
             return null;
@@ -91,7 +96,7 @@ pub fn spawn(bytes: []const u8) ?u64 {
         const page: [*]u8 = @ptrFromInt(pmm.physToVirt(phys));
         @memset(page[0..pmm.PAGE_SIZE], 0);
         const address = STACK_TOP - (@as(u64, @intCast(index)) + 1) * pmm.PAGE_SIZE;
-        if (!vmm.map(cr3, address, phys, vmm.WRITE | vmm.USER)) {
+        if (!vmm.mapInactive(cr3, address, phys, vmm.WRITE | vmm.USER)) {
             pmm.free(phys);
             vmm.destroyUserAddressSpace(cr3);
             return null;
@@ -119,12 +124,16 @@ pub fn spawn(bytes: []const u8) ?u64 {
         .stack_memory = stack,
         .code_pages = code_pages,
     };
+    ready_users += 1;
     return slot;
 }
 
 pub fn exitCurrent() bool {
-    if (active == 0) return false;
+    if (active == 0 or tasks[active].state != .ready) return false;
     tasks[active].state = .exited;
+    ready_users -= 1;
+    const pending: *volatile bool = &has_exited;
+    pending.* = true;
     return true;
 }
 
@@ -137,6 +146,8 @@ pub fn userReadable(ptr: u64, len: u64) bool {
 }
 
 pub fn tick(frame: *Frame) void {
+    const ready: *volatile usize = &ready_users;
+    if (active == 0 and ready.* == 0) return;
     if (tasks[active].state == .ready) tasks[active].frame = frame.*;
 
     var next: usize = 0;

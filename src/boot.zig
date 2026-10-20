@@ -66,13 +66,18 @@ export fn _start() callconv(.c) noreturn {
     k.write("kernel.zig: IRQ, timer, disk, processes ready\n");
 
     app.boot(k.heap.allocator());
+    k.serial.enableRxInterrupt();
     asm volatile ("sti");
     while (true) {
         k.tasks.reapExited();
-        if (k.readByte()) |byte| {
-            app.onInput(byte);
+        // No lost wakeup between checking the queue and sleeping.
+        asm volatile ("cli" ::: .{ .memory = true });
+        const byte = k.readByte();
+        if (byte) |value| {
+            asm volatile ("sti" ::: .{ .memory = true });
+            app.onInput(value);
         } else {
-            asm volatile ("pause");
+            asm volatile ("sti; hlt" ::: .{ .memory = true });
         }
     }
 }

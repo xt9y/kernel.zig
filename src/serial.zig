@@ -16,7 +16,12 @@ const REG_LSR: u16 = 5; // line status
 const LCR_DLAB: u8 = 0x80; // divisor latch access bit
 const LCR_8N1: u8 = 0x03; // 8 data bits
 const LSR_THR_EMPTY: u8 = 0x20; // transmit holding register empty
-const FCR_ENABLE: u8 = 0xC7; // enable + clear fifos
+const LSR_DATA_READY: u8 = 0x01;
+const FCR_ENABLE: u8 = 0x07; // enable + clear FIFOs, receive trigger = 1
+const RX_CAPACITY = 1024; // one ring slot remains empty
+var rx_buffer: [RX_CAPACITY]u8 = undefined;
+var rx_head: usize = 0;
+var rx_tail: usize = 0;
 const MCR_READY: u8 = 0x0B; // dtr + rts + out2
 const BAUD_38400_LOW: u8 = 0x03; // divisor 3 low byte
 
@@ -44,7 +49,9 @@ inline fn inb(port: u16) u8 {
 // idempotent so it should be relatively safe to call
 // from the panic handler
 pub fn init() void {
-    outb(COM1 + REG_IER, 0x00); // no interrupts
+    rx_head = 0;
+    rx_tail = 0;
+    outb(COM1 + REG_IER, 0x00); // enable receive IRQ after IDT/PIC init
     outb(COM1 + REG_LCR, LCR_DLAB); // the next two writes set the baud divisor
     outb(COM1 + REG_DATA, BAUD_38400_LOW); // divisor low byte
     outb(COM1 + REG_IER, 0x00); // divisor high byte
@@ -100,8 +107,33 @@ pub fn writeHex(value: u64) void {
     write(&buf);
 }
 
-/// Non-blocking COM1 read; host terminal handles the keyboard layout.
+// Receive is interrupt-driven after the boot initialization.
+pub fn enableRxInterrupt() void {
+    outb(COM1 + REG_IER, 0x01);
+}
+
+// IRQ4: drain the hardware FIFO into a bounded single-producer ring.
+pub fn onRxIrq() void {
+    const head: *volatile usize = &rx_head;
+    const tail: *volatile usize = &rx_tail;
+    while ((inb(COM1 + REG_LSR) & LSR_DATA_READY) != 0) {
+        const byte = inb(COM1 + REG_DATA);
+        const pos = head.*;
+        const next = (pos + 1) & (RX_CAPACITY - 1);
+        if (next != tail.*) {
+            rx_buffer[pos] = byte;
+            head.* = next;
+        }
+    }
+}
+
+// Non-blocking buffered COM1 read; the caller does not poll I/O ports.
 pub fn readByte() ?u8 {
-    if ((inb(COM1 + REG_LSR) & 1) == 0) return null;
-    return inb(COM1 + REG_DATA);
+    const head: *volatile usize = &rx_head;
+    const tail: *volatile usize = &rx_tail;
+    const pos = tail.*;
+    if (pos == head.*) return null;
+    const byte = rx_buffer[pos];
+    tail.* = (pos + 1) & (RX_CAPACITY - 1);
+    return byte;
 }

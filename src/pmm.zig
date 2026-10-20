@@ -118,29 +118,37 @@ fn reserve(i: usize) void {
 
 // hand out one physical frame, or null if were out
 // note: returns a physical address
-pub fn alloc() ?u64 {
-    var i = next_hint;
-    var scanned: usize = 0;
-    while (scanned < total_frames) : (scanned += 1) {
-        if (i >= total_frames) i = 0;
-        if (!frameUsed(i)) {
-            markUsed(i);
-            free_frames -= 1;
-            next_hint = i + 1;
-            return @as(u64, i) * PAGE_SIZE;
+fn findFree(start: usize, end: usize) ?usize {
+    var i = start;
+    while (i < end) {
+        if (bitmap[i >> 3] == 0xFF) {
+            i = @min(end, ((i >> 3) + 1) * 8);
+            continue;
         }
+        if (!frameUsed(i)) return i;
         i += 1;
     }
     return null;
+}
+
+// Search from the last allocation, skipping fully occupied bitmap bytes.
+pub fn alloc() ?u64 {
+    if (free_frames == 0) return null;
+    const split = @min(next_hint, total_frames);
+    const i = findFree(split, total_frames) orelse findFree(0, split) orelse return null;
+    markUsed(i);
+    free_frames -= 1;
+    next_hint = i + 1;
+    return @as(u64, i) * PAGE_SIZE;
 }
 
 // hand out count contiguous physical frames cause the heap needs one flat buffer and a
 // single usable region is contiguous in physical space, so this just finds a run of count free bits
 // note: returns the base physical address of the run
 pub fn allocContig(count: usize) ?u64 {
-    if (count == 0) return null;
+    if (count == 0 or count > free_frames or count > total_frames) return null;
     var i: usize = 0;
-    while (i + count <= total_frames) {
+    while (i <= total_frames - count) {
         var run: usize = 0;
         while (run < count and !frameUsed(i + run)) : (run += 1) {}
         if (run == count) {
@@ -149,15 +157,20 @@ pub fn allocContig(count: usize) ?u64 {
                 markUsed(i + j);
                 free_frames -= 1;
             }
+            if (next_hint >= i and next_hint < i + count) next_hint = i + count;
             return @as(u64, i) * PAGE_SIZE;
         }
-        // skip past the used frame that broke the run
-        i += run + 1;
+        const occupied = i + run;
+        i = if (bitmap[occupied >> 3] == 0xFF)
+            ((occupied >> 3) + 1) * 8
+        else
+            occupied + 1;
     }
     return null;
 }
 
 pub fn free(phys: u64) void {
+    if (phys % PAGE_SIZE != 0) return;
     const i = phys / PAGE_SIZE;
     if (i < total_frames and frameUsed(i)) {
         markFree(i);

@@ -150,7 +150,8 @@ export fn irqCommon() callconv(.naked) void {
 
 export fn irqDispatch(frame: *Frame) callconv(.c) void {
     switch (frame.vector) {
-        pic.MASTER_OFFSET + 0 => timer.onIrq(), // irq0: pit (tick count)
+        pic.MASTER_OFFSET + 0 => timer.onIrq(), // IRQ0: PIT
+        pic.MASTER_OFFSET + 4 => serial.onRxIrq(), // IRQ4: COM1 RX
         else => {},
     }
     // eoi before we possibly switch tasks (the switch never returns here)
@@ -183,9 +184,9 @@ pub fn init() void {
     const ist_fault = 2;
     setGate(VEC_DOUBLE_FAULT, @intFromPtr(&stub(VEC_DOUBLE_FAULT)), 0, ist_fault);
     setGate(VEC_PAGE_FAULT, @intFromPtr(&stub(VEC_PAGE_FAULT)), 0, ist_fault);
-    // IRQ0 is PIT only. PS/2 keyboard remains disabled.
-    // the pic is remapped separately in boot
+    // Only IRQ0 (PIT) and IRQ4 (COM1 RX) are enabled.
     setGate(pic.MASTER_OFFSET + 0, @intFromPtr(&irqStub(pic.MASTER_OFFSET + 0)), 0, 0);
+    setGate(pic.MASTER_OFFSET + 4, @intFromPtr(&irqStub(pic.MASTER_OFFSET + 4)), 0, 0);
     idtr = .{ .limit = @sizeOf(@TypeOf(idt)) - 1, .base = @intFromPtr(&idt) };
     asm volatile ("lidt (%[idtr])"
         :
