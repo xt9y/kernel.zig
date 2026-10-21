@@ -6,6 +6,7 @@
 
 const gdt = @import("gdt.zig");
 const serial = @import("serial.zig");
+const ps2 = @import("ps2.zig");
 const pic = @import("pic.zig");
 const timer = @import("timer.zig");
 const tasks = @import("tasks.zig");
@@ -151,6 +152,7 @@ export fn irqCommon() callconv(.naked) void {
 export fn irqDispatch(frame: *Frame) callconv(.c) void {
     switch (frame.vector) {
         pic.MASTER_OFFSET + 0 => timer.onIrq(), // IRQ0: PIT
+        pic.MASTER_OFFSET + 1 => ps2.onIrq(), // IRQ1: PS/2 keyboard
         pic.MASTER_OFFSET + 4 => serial.onRxIrq(), // IRQ4: COM1 RX
         else => {},
     }
@@ -184,8 +186,9 @@ pub fn init() void {
     const ist_fault = 2;
     setGate(VEC_DOUBLE_FAULT, @intFromPtr(&stub(VEC_DOUBLE_FAULT)), 0, ist_fault);
     setGate(VEC_PAGE_FAULT, @intFromPtr(&stub(VEC_PAGE_FAULT)), 0, ist_fault);
-    // Only IRQ0 (PIT) and IRQ4 (COM1 RX) are enabled.
+    // IRQ0 (PIT), IRQ1 (keyboard), IRQ4 (COM1 RX).
     setGate(pic.MASTER_OFFSET + 0, @intFromPtr(&irqStub(pic.MASTER_OFFSET + 0)), 0, 0);
+    setGate(pic.MASTER_OFFSET + 1, @intFromPtr(&irqStub(pic.MASTER_OFFSET + 1)), 0, 0);
     setGate(pic.MASTER_OFFSET + 4, @intFromPtr(&irqStub(pic.MASTER_OFFSET + 4)), 0, 0);
     idtr = .{ .limit = @sizeOf(@TypeOf(idt)) - 1, .base = @intFromPtr(&idt) };
     asm volatile ("lidt (%[idtr])"

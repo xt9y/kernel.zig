@@ -8,6 +8,7 @@ pub const port = @import("port.zig");
 pub const io = @import("io.zig");
 pub const ata = @import("ata.zig");
 pub const framebuffer = @import("framebuffer.zig");
+pub const ps2 = @import("ps2.zig");
 pub const timer = @import("timer.zig");
 pub const tasks = @import("tasks.zig");
 pub const gdt = @import("gdt.zig");

@@ -61,6 +61,7 @@ export fn _start() callconv(.c) noreturn {
     syscall.init();
     pic.init();
     k.timer.init();
+    k.ps2.init();
     k.tasks.init();
     k.ata.init();
     k.write("kernel.zig: IRQ, timer, disk, processes ready\n");
@@ -72,12 +73,17 @@ export fn _start() callconv(.c) noreturn {
         k.tasks.reapExited();
         // No lost wakeup between checking the queue and sleeping.
         asm volatile ("cli" ::: .{ .memory = true });
-        const byte = k.readByte();
-        if (byte) |value| {
-            asm volatile ("sti" ::: .{ .memory = true });
-            app.onInput(value);
-        } else {
+        const serial_byte = k.readByte();
+        const scan_byte = k.ps2.readScancode();
+        if (serial_byte == null and scan_byte == null) {
             asm volatile ("sti; hlt" ::: .{ .memory = true });
+        } else {
+            asm volatile ("sti" ::: .{ .memory = true });
+            if (serial_byte) |value| app.onInput(value);
+            // Optional for language-independent kernel users without a keyboard callback.
+            if (scan_byte) |raw| {
+                if (@hasDecl(app, "onScancode")) app.onScancode(raw);
+            }
         }
     }
 }
