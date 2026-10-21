@@ -73,13 +73,17 @@ export fn _start() callconv(.c) noreturn {
         k.tasks.reapExited();
         // No lost wakeup between checking the queue and sleeping.
         asm volatile ("cli" ::: .{ .memory = true });
-        var byte = k.readByte();
-        if (byte == null) byte = k.ps2.readChar();
-        if (byte) |value| {
-            asm volatile ("sti" ::: .{ .memory = true });
-            app.onInput(value);
-        } else {
+        const serial_byte = k.readByte();
+        const scan_byte = k.ps2.readScancode();
+        if (serial_byte == null and scan_byte == null) {
             asm volatile ("sti; hlt" ::: .{ .memory = true });
+        } else {
+            asm volatile ("sti" ::: .{ .memory = true });
+            if (serial_byte) |value| app.onInput(value);
+            // Optional for language-independent kernel users without a keyboard callback.
+            if (scan_byte) |raw| {
+                if (@hasDecl(app, "onScancode")) app.onScancode(raw);
+            }
         }
     }
 }
