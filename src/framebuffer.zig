@@ -55,3 +55,21 @@ pub fn clear(rgb: u32) bool {
     }
     return true;
 }
+
+// Fast hardware fill primitive; clipping keeps user-facing APIs simple.
+// Font rasterization, window composition and graphics policy remain in Revo.
+pub fn rect(x: u64, y: u64, width: u64, height: u64, rgb: u32) bool {
+    const fb = device() orelse return false;
+    if (width == 0 or height == 0 or x >= fb.width or y >= fb.height) return false;
+    const w = @min(width, fb.width - x);
+    const h = @min(height, fb.height - y);
+    const color = packedColor(fb, rgb);
+    for (0..@intCast(h)) |dy| {
+        const offset: usize = @intCast((y + @as(u64, @intCast(dy))) * fb.pitch + x * 4);
+        const row = fb.address + offset;
+        for (0..@intCast(w)) |dx| {
+            store(row + dx * 4, color);
+        }
+    }
+    return true;
+}
